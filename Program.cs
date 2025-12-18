@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -51,6 +51,10 @@ namespace WindowsFormsApp1
         public List<string> steps = new List<string>();
         public List<int> blinkingNodes = new List<int>();
 
+        public List<Tuple<int, int>> confirmedEdges = new List<Tuple<int, int>>();
+
+        public List<Tuple<int, int>> finalPathEdges = new List<Tuple<int, int>>();
+
         public Graph()
         {
             vertexList = new Vertex[MAX_VERTS];
@@ -88,6 +92,9 @@ namespace WindowsFormsApp1
         {
             steps.Clear();
             blinkingNodes.Clear();
+            confirmedEdges.Clear();
+            finalPathEdges.Clear();
+
             int start = GetIndex(startLabel);
             int end = GetIndex(endLabel);
 
@@ -103,7 +110,8 @@ namespace WindowsFormsApp1
 
             vertexList[start].isInTree = true;
             nTree = 1;
-            blinkingNodes.Add(start); 
+            blinkingNodes.Add(start);
+
             steps.Add("Bat dau tu " + vertexList[start].label);
 
             for (int j = 0; j < nVerts; j++)
@@ -132,6 +140,13 @@ namespace WindowsFormsApp1
                 vertexList[currentVert].isInTree = true;
                 nTree++;
                 blinkingNodes.Add(currentVert);
+
+                if (currentVert != start && sPath[currentVert] != null)
+                {
+                    int parent = sPath[currentVert].parentVert;
+                    confirmedEdges.Add(new Tuple<int, int>(parent, currentVert));
+                }
+
                 steps.Add("Them " + vertexList[currentVert].label + " vao cay, khoang cach: " + minDist);
 
                 if (currentVert == end)
@@ -202,10 +217,23 @@ namespace WindowsFormsApp1
             int current = end;
             string p = vertexList[current].label;
 
+            List<int> pathNodes = new List<int>();
+            pathNodes.Add(current);
+
             while (current != start)
             {
                 current = sPath[current].parentVert;
                 p = vertexList[current].label + " -> " + p;
+                pathNodes.Add(current);
+            }
+
+            pathNodes.Reverse();
+            finalPathEdges.Clear();
+            for (int i = 0; i < pathNodes.Count - 1; i++)
+            {
+                int a = pathNodes[i];
+                int b = pathNodes[i + 1];
+                finalPathEdges.Add(new Tuple<int, int>(a, b));
             }
 
             path += p;
@@ -284,8 +312,8 @@ namespace WindowsFormsApp1
         private Panel pnlGraph;
         private TextBox txtExplanation;
         private Timer timer;
-        private bool blinkState = false;
-        private int blinkIndex = 0;
+        private int revealIndex = 0;
+        private bool revealing = false;
 
         public DijkstraForm()
         {
@@ -496,12 +524,18 @@ namespace WindowsFormsApp1
                 }
                 txtExplanation.Text = graph.GetExplanation(start, end);
 
-                blinkState = false;
-                blinkIndex = 0;
-                if (graph.blinkingNodes != null && graph.blinkingNodes.Count > 0)
+                revealIndex = 0;
+                revealing = false;
+                if (graph.confirmedEdges != null && graph.confirmedEdges.Count > 0)
+                {
+                    revealing = true;
                     timer.Start();
+                }
                 else
+                {
                     timer.Stop();
+                    pnlGraph.Invalidate();
+                }
             }
             catch (Exception ex)
             {
@@ -523,6 +557,34 @@ namespace WindowsFormsApp1
 
             Point offset = pnlGraph.AutoScrollPosition;
 
+            bool EdgeMatchesPair(int a, int b, Tuple<int, int> t)
+            {
+                return (t.Item1 == a && t.Item2 == b) || (t.Item1 == b && t.Item2 == a);
+            }
+
+            bool IsEdgeConfirmed(int a, int b, int revealCount)
+            {
+                if (graph.confirmedEdges == null) return false;
+                int limit = Math.Min(revealCount, graph.confirmedEdges.Count);
+                for (int k = 0; k < limit; k++)
+                {
+                    if (EdgeMatchesPair(a, b, graph.confirmedEdges[k]))
+                        return true;
+                }
+                return false;
+            }
+
+            bool IsEdgeInFinalPath(int a, int b)
+            {
+                if (graph.finalPathEdges == null) return false;
+                for (int k = 0; k < graph.finalPathEdges.Count; k++)
+                {
+                    if (EdgeMatchesPair(a, b, graph.finalPathEdges[k]))
+                        return true;
+                }
+                return false;
+            }
+
             for (int i = 0; i < nVerts; i++)
             {
                 if (vertices[i] == null) continue;
@@ -533,19 +595,41 @@ namespace WindowsFormsApp1
                     {
                         Point p1 = new Point(vertices[i].position.X + offset.X, vertices[i].position.Y + offset.Y);
                         Point p2 = new Point(vertices[j].position.X + offset.X, vertices[j].position.Y + offset.Y);
-                        g.DrawLine(pen, p1, p2);
                         Point mid = new Point((p1.X + p2.X) / 2, (p1.Y + p2.Y) / 2);
-                        g.DrawString(adjMatrix[i, j].ToString(), font, Brushes.Black, mid);
+
+                        bool confirmed = IsEdgeConfirmed(i, j, revealIndex);
+                        bool inFinalPath = IsEdgeInFinalPath(i, j);
+
+                        if (inFinalPath && revealIndex >= graph.confirmedEdges.Count && graph.finalPathEdges.Count > 0)
+                        {
+                            using (Pen finalPen = new Pen(Color.DarkBlue, 4))
+                            {
+                                finalPen.LineJoin = LineJoin.Round;
+                                g.DrawLine(finalPen, p1, p2);
+                            }
+                            g.DrawString(adjMatrix[i, j].ToString(), font, Brushes.Black, mid);
+                        }
+                        else if (confirmed)
+                        {
+                            using (Pen confirmedPen = new Pen(Color.Black, 2))
+                            {
+                                g.DrawLine(confirmedPen, p1, p2);
+                            }
+                            g.DrawString(adjMatrix[i, j].ToString(), font, Brushes.Black, mid);
+                        }
+                        else
+                        {
+                            using (Pen fadedPen = new Pen(Color.FromArgb(70, Color.Black), 2))
+                            {
+                                g.DrawLine(fadedPen, p1, p2);
+                            }
+                            using (SolidBrush fadedBrush = new SolidBrush(Color.FromArgb(90, Color.Black)))
+                            {
+                                g.DrawString(adjMatrix[i, j].ToString(), font, fadedBrush, mid);
+                            }
+                        }
                     }
                 }
-            }
-
-            int currentBlinkVertex = -1;
-            if (graph.blinkingNodes != null && graph.blinkingNodes.Count > 0)
-            {
-                if (blinkIndex < 0) blinkIndex = 0;
-                if (blinkIndex >= graph.blinkingNodes.Count) blinkIndex = graph.blinkingNodes.Count - 1;
-                currentBlinkVertex = graph.blinkingNodes[blinkIndex];
             }
 
             for (int i = 0; i < nVerts; i++)
@@ -617,26 +701,6 @@ namespace WindowsFormsApp1
                         break;
                 }
 
-                if (i == currentBlinkVertex && blinkState)
-                {
-                    int dW = 36;
-                    int dH = 36;
-                    Point[] diamondBlink = new Point[]
-                    {
-                        new Point(pos.X, pos.Y - dH / 2),
-                        new Point(pos.X + dW / 2, pos.Y),
-                        new Point(pos.X, pos.Y + dH / 2),
-                        new Point(pos.X - dW / 2, pos.Y)
-                    };
-
-                    using (SolidBrush overlayBrush = new SolidBrush(Color.FromArgb(180, Color.Yellow)))
-                    using (Pen overlayPen = new Pen(Color.Gold, 2))
-                    {
-                        g.FillPolygon(overlayBrush, diamondBlink);
-                        g.DrawPolygon(overlayPen, diamondBlink);
-                    }
-                }
-
                 SizeF labelSize = g.MeasureString(v.label, labelFont);
                 g.DrawString(v.label, labelFont, Brushes.Black, pos.X - labelSize.Width / 2, pos.Y + size / 2 + 2);
 
@@ -692,18 +756,18 @@ namespace WindowsFormsApp1
 
         private void timer_Tick(object sender, EventArgs e)
         {
-            if (graph.blinkingNodes == null || graph.blinkingNodes.Count == 0)
+            if (!revealing)
             {
                 timer.Stop();
                 return;
             }
 
-            
-            blinkState = !blinkState;
-            if (!blinkState)
+            revealIndex++;
+            if (revealIndex >= graph.confirmedEdges.Count)
             {
-                blinkIndex++;
-                if (blinkIndex >= graph.blinkingNodes.Count) blinkIndex = 0;
+                revealIndex = graph.confirmedEdges.Count;
+                revealing = false;
+                timer.Stop();
             }
 
             pnlGraph.Invalidate();
