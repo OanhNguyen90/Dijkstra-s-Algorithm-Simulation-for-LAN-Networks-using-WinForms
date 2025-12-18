@@ -648,7 +648,7 @@ namespace WindowsFormsApp1
                 {
                     case "PC":
                         int w = 50;
-                        int h = 30;
+                        int h = 40;
                         rect = new Rectangle(pos.X - w / 2, pos.Y - h / 2, w, h);
                         g.FillRectangle(baseBrush, rect);
                         g.DrawRectangle(pen, rect);
